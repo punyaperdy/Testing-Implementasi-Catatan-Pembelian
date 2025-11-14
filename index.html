@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Web Catatan Pembelian</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; background:#f7f9fc; color:#222; }
+    .card { background:white; padding:16px; border-radius:8px; box-shadow:0 2px 6px rgba(0,0,0,0.08); margin-bottom:16px; }
+    label { display:block; margin-top:8px; font-size:14px; }
+    input[type="text"], input[type="number"] { width:100%; padding:8px; margin-top:4px; box-sizing:border-box; }
+    .row { display:flex; gap:12px; }
+    .row > * { flex:1; }
+    button { padding:8px 12px; border:0; border-radius:4px; cursor:pointer; }
+    button.primary { background:#1976d2; color:white; }
+    button.ghost { background:#eee; }
+    table { width:100%; border-collapse:collapse; margin-top:12px; }
+    th, td { padding:8px; border-bottom:1px solid #e6e6e6; text-align:left; }
+    .actions button { margin-right:6px; }
+    .right { text-align:right; }
+    .muted { color:#666; font-size:13px; }
+    .total { font-weight:700; }
+    .empty { padding:20px; text-align:center; color:#666; }
+  </style>
+</head>
+<body>
+  <h2>Catatan Pembelian</h2>
+
+  <div class="card" id="formCard">
+    <form id="purchaseForm">
+      <input type="hidden" id="editId" value="">
+      <label>Nama Produk
+        <input type="text" id="productName" required placeholder="Contoh: Sabun Mandi">
+      </label>
+
+      <div class="row">
+        <label>Jumlah
+          <input type="number" id="quantity" min="1" value="1" required>
+        </label>
+        <label>Harga Satuan (Rupiah)
+          <input type="number" id="unitPrice" min="0" step="1" value="0" required>
+        </label>
+        <label>Total
+          <input type="text" id="totalPrice" readonly class="muted">
+        </label>
+      </div>
+
+      <div style="margin-top:12px;">
+        <button type="submit" class="primary" id="saveBtn">Simpan</button>
+        <button type="button" class="ghost" id="resetBtn">Bersihkan</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <h3>Daftar Pembelian</h3>
+    <div id="listContainer"></div>
+  </div>
+
+  <script>
+    // Simple storage key
+    const STORAGE_KEY = 'purchases_v1';
+
+    // Elements
+    const form = document.getElementById('purchaseForm');
+    const productName = document.getElementById('productName');
+    const quantity = document.getElementById('quantity');
+    const unitPrice = document.getElementById('unitPrice');
+    const totalPrice = document.getElementById('totalPrice');
+    const listContainer = document.getElementById('listContainer');
+    const editIdEl = document.getElementById('editId');
+    const saveBtn = document.getElementById('saveBtn');
+    const resetBtn = document.getElementById('resetBtn');
+
+    // Helpers
+    function loadPurchases() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        return raw ? JSON.parse(raw) : [];
+      } catch(e) { return []; }
+    }
+    function savePurchases(items) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+    }
+    function formatRupiah(n) {
+      return new Intl.NumberFormat('id-ID').format(Number(n) || 0);
+    }
+    function calcTotal() {
+      const q = Number(quantity.value) || 0;
+      const p = Number(unitPrice.value) || 0;
+      const t = q * p;
+      totalPrice.value = formatRupiah(t);
+      return t;
+    }
+
+    // Render list
+    function renderList() {
+      const items = loadPurchases();
+      if (!items.length) {
+        listContainer.innerHTML = '<div class="empty">Belum ada data pembelian.</div>';
+        return;
+      }
+      let html = '<table><thead><tr><th>Produk</th><th>Jumlah</th><th>Harga Satuan</th><th class="right">Total</th><th>Aksi</th></tr></thead><tbody>';
+      items.forEach(it => {
+        html += `<tr>
+          <td>${escapeHtml(it.name)}</td>
+          <td>${it.quantity}</td>
+          <td>Rp ${formatRupiah(it.unitPrice)}</td>
+          <td class="right">Rp ${formatRupiah(it.total)}</td>
+          <td class="actions">
+            <button data-id="${it.id}" class="editBtn">Edit</button>
+            <button data-id="${it.id}" class="delBtn">Hapus</button>
+          </td>
+        </tr>`;
+      });
+      const sum = items.reduce((s,i)=>s+i.total,0);
+      html += `</tbody></table><div style="margin-top:8px; text-align:right;" class="total">Total Semua: Rp ${formatRupiah(sum)}</div>`;
+      listContainer.innerHTML = html;
+
+      // attach handlers
+      document.querySelectorAll('.delBtn').forEach(b => b.addEventListener('click', onDelete));
+      document.querySelectorAll('.editBtn').forEach(b => b.addEventListener('click', onEdit));
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+
+    // Handlers
+    function onDelete(e) {
+      const id = e.currentTarget.getAttribute('data-id');
+      if (!confirm('Hapus catatan ini?')) return;
+      const items = loadPurchases().filter(i => i.id !== id);
+      savePurchases(items);
+      renderList();
+    }
+
+    function onEdit(e) {
+      const id = e.currentTarget.getAttribute('data-id');
+      const items = loadPurchases();
+      const it = items.find(x => x.id === id);
+      if (!it) return;
+      editIdEl.value = it.id;
+      productName.value = it.name;
+      quantity.value = it.quantity;
+      unitPrice.value = it.unitPrice;
+      calcTotal();
+      productName.focus();
+      saveBtn.textContent = 'Perbarui';
+    }
+
+    // Form submit
+    form.addEventListener('submit', function(ev) {
+      ev.preventDefault();
+      const name = productName.value.trim();
+      if (!name) { alert('Nama produk wajib diisi'); productName.focus(); return; }
+      const q = Math.max(0, Math.floor(Number(quantity.value) || 0));
+      const p = Math.max(0, Math.floor(Number(unitPrice.value) || 0));
+      const total = q * p;
+
+      const items = loadPurchases();
+      const editId = editIdEl.value;
+      if (editId) {
+        // update
+        const idx = items.findIndex(i => i.id === editId);
+        if (idx >= 0) {
+          items[idx] = { id: editId, name, quantity: q, unitPrice: p, total };
+        }
+        saveBtn.textContent = 'Simpan';
+      } else {
+        // add
+        const newItem = { id: cryptoRandomId(), name, quantity: q, unitPrice: p, total };
+        items.push(newItem);
+      }
+      savePurchases(items);
+      form.reset();
+      editIdEl.value = '';
+      totalPrice.value = '';
+      renderList();
+    });
+
+    // live calc
+    quantity.addEventListener('input', calcTotal);
+    unitPrice.addEventListener('input', calcTotal);
+
+    resetBtn.addEventListener('click', function(){
+      form.reset();
+      editIdEl.value = '';
+      totalPrice.value = '';
+      saveBtn.textContent = 'Simpan';
+    });
+
+    // small id generator
+    function cryptoRandomId() {
+      return 'id-' + (crypto && crypto.getRandomValues ? Array.from(crypto.getRandomValues(new Uint32Array(4))).join('-') : Date.now() + '-' + Math.random().toString(36).slice(2));
+    }
+
+    // initial render
+    calcTotal();
+    renderList();
+  </script>
+</body>
+</html>
